@@ -100,6 +100,18 @@ proc swap(level: ptr Level, a, b: int) {.inline.} =
     level[a].kind = currentKind
     level[a].dirty = true
 
+proc draw(data: ThreadData) {.thread.} =
+  var level = data.level
+  let offset = data.index * (ChunkSize * ChunkSize)
+  for i in 0..<ChunkSize * ChunkSize:
+    let
+      pos = i + offset
+      x = pos.mod(ScreenSize)
+      y = pos.div(ScreenSize)
+    {.cast(gcsafe).}:
+      psetraw(x, y, Colors[level[pos].kind])
+    level[pos].dirty = false
+
 proc update(data: ThreadData) {.thread.} =
   var
     level = data.level
@@ -141,6 +153,7 @@ proc update(data: ThreadData) {.thread.} =
                 level.swap(pos, rightPos)
                 continue
         inc i
+      data.draw
       lastTick = tick
     sleep(1)
 proc gameInit() =
@@ -182,21 +195,12 @@ proc gameUpdate(dt: float32) =
 fps(300)
 var lastDraw = cpuTime()
 proc gameDraw() =
-  cls()
-  let fps = 1.0 / (cpuTime() - lastDraw)
-  for i, tile in level:
-    if tile.kind != air:
-      let
-        x = i.mod(ScreenSize)
-        y = i.div(ScreenSize)
-      psetraw(x, y, Colors[tile.kind])
-      level[i].dirty = false
+  echo 1.0 / (cpuTime() - lastDraw)
+  lastDraw = cpuTime()
   setColor(15)
   let (x,y) = mouse()
   circ(x,y, drawSize.div(2))
-  printc($fps, ScreenSize.div(2), 0, 10)
-  lastDraw = cpuTime()
-
+  #printc($fps, ScreenSize.div(2), 0, 10)
 
 nico.init("myOrg", "myApp")
 nico.createWindow("myApp", ScreenSize, ScreenSize, 1, false)
