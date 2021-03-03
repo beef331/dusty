@@ -1,11 +1,12 @@
 import nico
 import nico/vec
-import std/[random, times, os]
+import std/[random, times, os, math]
 
 const 
   ScreenSize = 1024
-  ChunkSize = 128
-  ThreadCount = ScreenSize.div(ChunkSize) * ScreenSize.div(ChunkSize)
+  ChunkSize = 256
+  ThreadWidth = ScreenSize.div(ChunkSize)
+  ThreadCount = ThreadWidth.div(2).float.pow(2).int # Should be half area squared
   DrawRange = 10..200
   ScrollSpeed = 10
 
@@ -28,6 +29,11 @@ type
   ThreadData = object
     level: ptr Level
     index: int
+  ThreadOpKind = enum
+    toDraw, toUpdate
+  ThreadOp = object
+    chunkId: int
+    kind: ThreadOpKind
 const 
   ParticleProp = [
     air: Properties(density: 0, velocity: 10, moveShape: msTri, upsideDown: true),
@@ -50,6 +56,12 @@ var
   drawSize = 100
   level: Level
   tick = 0
+  updateThreads: array[ThreadCount, Thread[ThreadData]]
+  threadChannels: array[ThreadCount, Channel[ThreadOp]]
+  mainChannels: array[ThreadCount, Channel[ThreadOp]]
+for x in 0..<threadChannels.len:
+  threadChannels[x].open()
+  mainChannels[x].open()
 proc moveTowards(start: int, level: ptr Level, direction: set[Direction]): (int, int) {.inline.} = 
   let 
     yOffset = 
@@ -100,9 +112,9 @@ proc swap(level: ptr Level, a, b: int) {.inline.} =
     level[a].kind = currentKind
     level[a].dirty = true
 
-proc draw(data: ThreadData) {.thread.} =
+proc draw(data: ThreadData, chunkIndex: int) {.thread.} =
   var level = data.level
-  let offset = data.index * (ChunkSize * ChunkSize)
+  let offset = chunkIndex * (ChunkSize * ChunkSize)
   for i in 0..<ChunkSize * ChunkSize:
     let
       pos = i + offset
@@ -112,50 +124,53 @@ proc draw(data: ThreadData) {.thread.} =
       psetraw(x, y, Colors[level[pos].kind])
     level[pos].dirty = false
 
-proc update(data: ThreadData) {.thread.} =
+proc update(data: ThreadData, chunkIndex: int) {.thread.} =
   var
     level = data.level
-    offset = data.index * (ChunkSize * ChunkSize)
-    lastTick = 0
-  while true:
-    var i = 0
-    if tick != lastTick:
-      while i < ChunkSize * ChunkSize:
-        let kind = level[i + offset].kind
-        if kind in UpdateMask and not level[i + offset].dirty:
-          let
-            pos = i + offset
-            props = ParticleProp[kind]
-            invertSet = if props.upsideDown: {invert} else: {}
-            (vertSteps, vertPos) =  pos.moveTowards(level, {vertical} + invertSet)
-          if vertSteps > 0 and ParticleProp[level[vertPos].kind].density < props.density:
-            level.swap(pos, vertPos)
+    offset = chunkIndex * (ChunkSize * ChunkSize)
+  for i in 0 ..< ChunkSize * ChunkSize:
+    let kind = level[i + offset].kind
+    if kind in UpdateMask and not level[i + offset].dirty:
+      let
+        pos = i + offset
+        props = ParticleProp[kind]
+        invertSet = if props.upsideDown: {invert} else: {}
+        (vertSteps, vertPos) =  pos.moveTowards(level, {vertical} + invertSet)
+      if vertSteps > 0 and ParticleProp[level[vertPos].kind].density < props.density:
+        level.swap(pos, vertPos)
+        continue
+      if rand(0..1) == 1:
+        let (leftVertSteps, leftVertPos) =  pos.moveTowards(level, {vertical, left} + invertSet)
+        if leftVertSteps > 0 and ParticleProp[level[leftVertPos].kind].density < props.density:
+          level.swap(pos, leftVertPos)
+          continue
+      else:
+        let (rightVertSteps, rightVertPos) =  pos.moveTowards(level, {vertical, right} + invertSet)
+        if rightVertSteps > 0 and ParticleProp[level[rightVertPos].kind].density < props.density:
+          level.swap(pos, rightVertPos)
+          continue
+      if props.moveShape == msU:
+        if rand(0..1) == 1:
+          let (leftSteps, leftPos) =  pos.moveTowards(level, {left} + invertSet)
+          if leftSteps > 0 and ParticleProp[level[leftPos].kind].density < props.density:
+            level.swap(pos, leftPos)
             continue
-          if rand(0..1) == 1:
-            let (leftVertSteps, leftVertPos) =  pos.moveTowards(level, {vertical, left} + invertSet)
-            if leftVertSteps > 0 and ParticleProp[level[leftVertPos].kind].density < props.density:
-              level.swap(pos, leftVertPos)
-              continue
-          else:
-            let (rightVertSteps, rightVertPos) =  pos.moveTowards(level, {vertical, right} + invertSet)
-            if rightVertSteps > 0 and ParticleProp[level[rightVertPos].kind].density < props.density:
-              level.swap(pos, rightVertPos)
-              continue
-          if props.moveShape == msU:
-            if rand(0..1) == 1:
-              let (leftSteps, leftPos) =  pos.moveTowards(level, {left} + invertSet)
-              if leftSteps > 0 and ParticleProp[level[leftPos].kind].density < props.density:
-                level.swap(pos, leftPos)
-                continue
-            else:
-              let (rightSteps, rightPos) =  pos.moveTowards(level, {right} + invertSet)
-              if rightSteps > 0 and ParticleProp[level[rightPos].kind].density < props.density:
-                level.swap(pos, rightPos)
-                continue
-        inc i
-      data.draw
-      lastTick = tick
-    sleep(1)
+        else:
+          let (rightSteps, rightPos) =  pos.moveTowards(level, {right} + invertSet)
+          if rightSteps > 0 and ParticleProp[level[rightPos].kind].density < props.density:
+            level.swap(pos, rightPos)
+            continue
+
+proc threadWait(data: ThreadData) {.thread.} =
+  while true:
+    let op = threadChannels[data.index].recv()
+    case op.kind:
+    of toUpdate:
+      update(data, op.chunkId)
+    of toDraw:
+      draw(data, op.chunkId)
+    mainChannels[data.index].send(ThreadOp(kind: toDraw))
+
 proc gameInit() =
   loadFont(0, "font.png")
 
@@ -171,9 +186,32 @@ proc drawParticle(level: var Level, kind: ParticleKind) =
           level[ind].kind = kind
           level[ind].dirty = true
 
-var updateThreads: array[ThreadCount, Thread[ThreadData]]
 for x in 0..<ThreadCount:
-  updateThreads[x].createThread(update, ThreadData(level: level.addr, index: x))
+  updateThreads[x].createThread(threadWait, ThreadData(level: level.addr, index: x))
+
+proc update(l: var Level) =
+  for step in 0..<4:     
+    var ind = 
+      case step:
+        of 0: 0
+        of 1: 1
+        of 2: ThreadWidth
+        of 3: ThreadWidth + 1
+        else: 0
+    for i in 0..<ThreadCount:
+      threadChannels[i].send(ThreadOp(kind: toUpdate, chunkId: ind))
+      if ind.mod(ThreadWidth) >= ThreadWidth.div(2):
+        ind += ThreadWidth
+      ind += 2
+    for i in 0..<ThreadCount:
+      discard mainChannels[i].recv # "Freeze"
+
+proc draw(l: var Level) =
+  for i in 0..<4:
+    for j in 0..<ThreadCount:
+      threadChannels[j].send(ThreadOp(kind: toDraw, chunkId: i * ThreadWidth + j))
+    for j in 0..<ThreadCount:
+      discard mainChannels[j].recv # "Freeze"
 
 proc gameUpdate(dt: float32) =
   if mousebtn(0):
@@ -190,17 +228,20 @@ proc gameUpdate(dt: float32) =
     for x in level.mitems:
       x.kind = air
   drawSize = clamp(drawSize + mousewheel() * ScrollSpeed, DrawRange.a, DrawRange.b)
+  level.update()
   inc tick
 
 fps(300)
 var lastDraw = cpuTime()
 proc gameDraw() =
-  echo 1.0 / (cpuTime() - lastDraw)
+  cls()
+  let fps =  1.0 / (cpuTime() - lastDraw)
   lastDraw = cpuTime()
+  draw(level)
   setColor(15)
   let (x,y) = mouse()
   circ(x,y, drawSize.div(2))
-  #printc($fps, ScreenSize.div(2), 0, 10)
+  printc($fps, ScreenSize.div(2), 0, 10)
 
 nico.init("myOrg", "myApp")
 nico.createWindow("myApp", ScreenSize, ScreenSize, 1, false)
