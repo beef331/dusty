@@ -1,13 +1,14 @@
 import nico
 import nico/vec
 import std/[random, times, os]
-{.experimental: "views".}
+
 const 
   ScreenSize = 1024
   ChunkSize = 128
   ThreadCount = ScreenSize.div(ChunkSize) * ScreenSize.div(ChunkSize)
   DrawRange = 10..200
   ScrollSpeed = 10
+
 type
   ParticleKind = enum
     air, sand, water, steel, salt, gas
