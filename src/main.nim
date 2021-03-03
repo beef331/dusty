@@ -7,6 +7,8 @@ const
   ChunkSize = 256
   ThreadWidth = ScreenSize.div(ChunkSize)
   ThreadCount = ThreadWidth.div(2).float.pow(2).int # Should be half area squared
+  CheckerRange = 0..<4
+  ThreadRange = 0..<ThreadCount
   DrawRange = 10..200
   ScrollSpeed = 10
 
@@ -186,11 +188,11 @@ proc drawParticle(level: var Level, kind: ParticleKind) =
           level[ind].kind = kind
           level[ind].dirty = true
 
-for x in 0..<ThreadCount:
+for x in ThreadRange:
   updateThreads[x].createThread(threadWait, ThreadData(level: level.addr, index: x))
 
 proc update(l: var Level) =
-  for step in 0..<4:     
+  for step in CheckerRange:     
     var ind = 
       case step:
         of 0: 0
@@ -198,19 +200,19 @@ proc update(l: var Level) =
         of 2: ThreadWidth
         of 3: ThreadWidth + 1
         else: 0
-    for i in 0..<ThreadCount:
+    for i in ThreadRange:
       threadChannels[i].send(ThreadOp(kind: toUpdate, chunkId: ind))
-      if ind.mod(ThreadWidth) >= ThreadWidth.div(2):
+      if ind.div(ThreadWidth) < (ind + 2).div(ThreadWidth):
         ind += ThreadWidth
       ind += 2
-    for i in 0..<ThreadCount:
+    for i in ThreadRange:
       discard mainChannels[i].recv # "Freeze"
 
 proc draw(l: var Level) =
-  for i in 0..<4:
-    for j in 0..<ThreadCount:
+  for i in CheckerRange:
+    for j in ThreadRange:
       threadChannels[j].send(ThreadOp(kind: toDraw, chunkId: i * ThreadWidth + j))
-    for j in 0..<ThreadCount:
+    for j in ThreadRange:
       discard mainChannels[j].recv # "Freeze"
 
 proc gameUpdate(dt: float32) =
@@ -236,12 +238,13 @@ var lastDraw = cpuTime()
 proc gameDraw() =
   cls()
   let fps =  1.0 / (cpuTime() - lastDraw)
-  lastDraw = cpuTime()
+  echo fps
   draw(level)
   setColor(15)
   let (x,y) = mouse()
   circ(x,y, drawSize.div(2))
   printc($fps, ScreenSize.div(2), 0, 10)
+  lastDraw = cpuTime()
 
 nico.init("myOrg", "myApp")
 nico.createWindow("myApp", ScreenSize, ScreenSize, 1, false)
