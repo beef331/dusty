@@ -6,6 +6,8 @@ const
   ScreenSize = 1024
   ChunkSize = 128
   ThreadCount = ScreenSize.div(ChunkSize) * ScreenSize.div(ChunkSize)
+  DrawRange = 10..200
+  ScrollSpeed = 10
 type
   ParticleKind = enum
     air, sand, water, steel, salt, gas
@@ -42,8 +44,9 @@ const
     gas: 1,
   ]
   UpdateMask = {sand, water, salt, gas}
-  DrawSize = 100
-var 
+
+var
+  drawSize = 100
   level: Level
   tick = 0
 proc moveTowards(start: int, level: ptr Level, direction: set[Direction]): (int, int) {.inline.} = 
@@ -145,7 +148,7 @@ proc gameInit() =
 proc drawParticle(level: var Level, kind: ParticleKind) =
   let 
     (x, y) = mouse()
-    halfDraw = DrawSize.div(2)
+    halfDraw = drawSize.div(2)
   for xPos in -halfDraw..halfDraw:
     for yPos in -halfDraw..halfDraw:
       if vec2f(xPos, yPos).length <= halfDraw:
@@ -172,6 +175,7 @@ proc gameUpdate(dt: float32) =
   if btn(pcStart):
     for x in level.mitems:
       x.kind = air
+  drawSize = clamp(drawSize + mousewheel() * ScrollSpeed, DrawRange.a, DrawRange.b)
   inc tick
 
 fps(300)
@@ -187,6 +191,8 @@ proc gameDraw() =
       psetraw(x, y, Colors[tile.kind])
       level[i].dirty = false
   setColor(15)
+  let (x,y) = mouse()
+  circ(x,y, drawSize.div(2))
   printc($fps, ScreenSize.div(2), 0, 10)
   lastDraw = cpuTime()
 
