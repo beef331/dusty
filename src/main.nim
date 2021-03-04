@@ -39,11 +39,11 @@ type
 const 
   ParticleProp = [
     air: Properties(density: 0, velocity: 10, moveShape: msTri, upsideDown: true),
-    sand: Properties(density: 1, velocity: 1, moveShape: msTri, upsideDown: false),
-    water: Properties(density: 0.5, velocity: 1, moveShape: msU, upsideDown: false),
+    sand: Properties(density: 1, velocity: 2, moveShape: msTri, upsideDown: false),
+    water: Properties(density: 0.5, velocity: 3, moveShape: msU, upsideDown: false),
     steel: Properties(density: 100, velocity: 0, moveShape: msU, upsideDown: false),
-    salt: Properties(density: 2, velocity: 2, moveShape: msTri, upsideDown: false),
-    gas: Properties(density: 0.0001, velocity: 1, moveShape: msTri, upsideDown: true)]
+    salt: Properties(density: 2, velocity: 4, moveShape: msTri, upsideDown: false),
+    gas: Properties(density: 0.0001, velocity: 5, moveShape: msTri, upsideDown: true)]
   Colors = [
     air: 0,
     sand: 9,
@@ -184,7 +184,7 @@ proc drawParticle(level: var Level, kind: ParticleKind) =
     for yPos in -halfDraw..halfDraw:
       if vec2f(xPos, yPos).length <= halfDraw:
         let ind = (x + xPos) + (y + yPos) * ScreenSize
-        if ind in 0 ..< ScreenSize * ScreenSize and level[ind].kind == air:
+        if ind in 0 ..< ScreenSize * ScreenSize and (level[ind].kind == air or kind == air):
           level[ind].kind = kind
           level[ind].dirty = true
 
@@ -226,6 +226,8 @@ proc gameUpdate(dt: float32) =
     level.drawParticle(salt)
   if btn(pcB):
     level.drawParticle(gas)
+  if btn(pcY):
+    level.drawParticle(air)
   if btn(pcStart):
     for x in level.mitems:
       x.kind = air
@@ -234,16 +236,20 @@ proc gameUpdate(dt: float32) =
   inc tick
 
 fps(300)
-var lastDraw = cpuTime()
+var 
+  lastDraw = cpuTime()
+  sum = 0
+  frames = 0
 proc gameDraw() =
   cls()
-  let fps =  1.0 / (cpuTime() - lastDraw)
-  echo fps
+  sum += (1 / (cpuTime() - lastDraw)).int
+  inc frames
   draw(level)
   setColor(15)
   let (x,y) = mouse()
   circ(x,y, drawSize.div(2))
-  printc($fps, ScreenSize.div(2), 0, 10)
+  let avg = sum.div(frames)
+  printc($avg, ScreenSize.div(2), 0, 10)
   lastDraw = cpuTime()
 
 nico.init("myOrg", "myApp")
