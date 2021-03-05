@@ -12,7 +12,7 @@ requires "nico >= 0.2.5"
 srcDir = "src"
 
 task runr, "Runs dusty for current platform":
- exec "nim c -r -d:release -o:dusty src/main.nim"
+ exec "nim c -r -d:danger -o:dusty src/main.nim"
 
 task rund, "Runs debug dusty for current platform":
  exec "nim c -r -d:debug -o:dusty src/main.nim"

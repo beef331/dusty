@@ -4,7 +4,7 @@ import std/[random, times, os, math]
 
 const 
   ScreenSize = 1024
-  ChunkSize = 256
+  ChunkSize = 512
   ThreadWidth = ScreenSize.div(ChunkSize)
   ThreadCount = ThreadWidth.div(2).float.pow(2).int # Should be half area squared
   CheckerRange = 0..<4
@@ -31,18 +31,13 @@ type
   ThreadData = object
     level: ptr Level
     index: int
-  ThreadOpKind = enum
-    toDraw, toUpdate
-  ThreadOp = object
-    chunkId: int
-    kind: ThreadOpKind
 const 
   ParticleProp = [
     air: Properties(density: 0, velocity: 10, moveShape: msTri, upsideDown: true),
-    sand: Properties(density: 1, velocity: 2, moveShape: msTri, upsideDown: false),
-    water: Properties(density: 0.5, velocity: 3, moveShape: msU, upsideDown: false),
+    sand: Properties(density: 1, velocity: 1, moveShape: msTri, upsideDown: false),
+    water: Properties(density: 0.5, velocity: 2, moveShape: msU, upsideDown: false),
     steel: Properties(density: 100, velocity: 0, moveShape: msU, upsideDown: false),
-    salt: Properties(density: 2, velocity: 4, moveShape: msTri, upsideDown: false),
+    salt: Properties(density: 2, velocity: 3, moveShape: msTri, upsideDown: false),
     gas: Properties(density: 0.0001, velocity: 5, moveShape: msTri, upsideDown: true)]
   Colors = [
     air: 0,
@@ -59,8 +54,8 @@ var
   level: Level
   tick = 0
   updateThreads: array[ThreadCount, Thread[ThreadData]]
-  threadChannels: array[ThreadCount, Channel[ThreadOp]]
-  mainChannels: array[ThreadCount, Channel[ThreadOp]]
+  threadChannels: array[ThreadCount, Channel[int]]
+  mainChannels: array[ThreadCount, Channel[int]]
 for x in 0..<threadChannels.len:
   threadChannels[x].open()
   mainChannels[x].open()
@@ -114,7 +109,7 @@ proc swap(level: ptr Level, a, b: int) {.inline.} =
     level[a].kind = currentKind
     level[a].dirty = true
 
-proc draw(data: ThreadData, chunkIndex: int) {.thread.} =
+proc draw(data: ThreadData, chunkIndex: int) {.thread, inline.} =
   var level = data.level
   let offset = chunkIndex * (ChunkSize * ChunkSize)
   for i in 0..<ChunkSize * ChunkSize:
@@ -126,7 +121,7 @@ proc draw(data: ThreadData, chunkIndex: int) {.thread.} =
       psetraw(x, y, Colors[level[pos].kind])
     level[pos].dirty = false
 
-proc update(data: ThreadData, chunkIndex: int) {.thread.} =
+proc update(data: ThreadData, chunkIndex: int) {.thread, inline.} =
   var
     level = data.level
     offset = chunkIndex * (ChunkSize * ChunkSize)
@@ -165,13 +160,10 @@ proc update(data: ThreadData, chunkIndex: int) {.thread.} =
 
 proc threadWait(data: ThreadData) {.thread.} =
   while true:
-    let op = threadChannels[data.index].recv()
-    case op.kind:
-    of toUpdate:
-      update(data, op.chunkId)
-    of toDraw:
-      draw(data, op.chunkId)
-    mainChannels[data.index].send(ThreadOp(kind: toDraw))
+    let id = threadChannels[data.index].recv()
+    update(data, id)
+    draw(data, id)
+    mainChannels[data.index].send(0)
 
 proc gameInit() =
   loadFont(0, "font.png")
@@ -201,19 +193,12 @@ proc update(l: var Level) =
         of 3: ThreadWidth + 1
         else: 0
     for i in ThreadRange:
-      threadChannels[i].send(ThreadOp(kind: toUpdate, chunkId: ind))
+      threadChannels[i].send(ind)
       if ind.div(ThreadWidth) < (ind + 2).div(ThreadWidth):
         ind += ThreadWidth
       ind += 2
     for i in ThreadRange:
       discard mainChannels[i].recv # "Freeze"
-
-proc draw(l: var Level) =
-  for i in CheckerRange:
-    for j in ThreadRange:
-      threadChannels[j].send(ThreadOp(kind: toDraw, chunkId: i * ThreadWidth + j))
-    for j in ThreadRange:
-      discard mainChannels[j].recv # "Freeze"
 
 proc gameUpdate(dt: float32) =
   if mousebtn(0):
@@ -241,10 +226,9 @@ var
   sum = 0
   frames = 0
 proc gameDraw() =
-  cls()
   sum += (1 / (cpuTime() - lastDraw)).int
+  echo (cpuTime() - lastDraw)
   inc frames
-  draw(level)
   setColor(15)
   let (x,y) = mouse()
   circ(x,y, drawSize.div(2))
