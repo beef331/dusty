@@ -1,17 +1,22 @@
 import nico
 import nico/vec
-import std/[random, times, os, math]
+import std/[random, times, math, cpuinfo]
 
 const 
   ScreenSize = 1024
-  ChunkSize = 512
-  ThreadWidth = ScreenSize.div(ChunkSize)
-  ThreadCount = ThreadWidth.div(2).float.pow(2).int # Should be half area squared
-  CheckerRange = 0..<4
-  ThreadRange = 0..<ThreadCount
   DrawRange = 10..200
   ScrollSpeed = 10
+  CheckerRange = 0..<4
 
+let 
+  (ChunkSize, ThreadWidth, ThreadCount, ThreadRange) = block:
+    let
+      baseFourThreads = 4f.pow(countProcessors().float.log(4f).floor)
+      size = min(ScreenSize.div(baseFourThreads), 512)
+      width = ScreenSize.div(size)
+      count = width.div(2).float.pow(2).int # Should be half area squared
+      rng = 0..<count
+    (size, width, count, rng)
 type
   ParticleKind = enum
     air, sand, water, steel, salt, gas
@@ -48,14 +53,14 @@ const
     gas: 1,
   ]
   UpdateMask = {sand, water, salt, gas}
-
+echo ThreadCount
 var
   drawSize = 100
   level: Level
   tick = 0
-  updateThreads: array[ThreadCount, Thread[ThreadData]]
-  threadChannels: array[ThreadCount, Channel[int]]
-  mainChannels: array[ThreadCount, Channel[int]]
+  updateThreads = newSeq[Thread[ThreadData]](ThreadCount)
+  threadChannels = newSeq[Channel[int]](ThreadCount)
+  mainChannels = newSeq[Channel[int]](ThreadCount)
 for x in 0..<threadChannels.len:
   threadChannels[x].open()
   mainChannels[x].open()
@@ -160,10 +165,11 @@ proc update(data: ThreadData, chunkIndex: int) {.thread, inline.} =
 
 proc threadWait(data: ThreadData) {.thread.} =
   while true:
-    let id = threadChannels[data.index].recv()
-    update(data, id)
-    draw(data, id)
-    mainChannels[data.index].send(0)
+    {.cast(gcSafe).}:
+      let id = threadChannels[data.index].recv()
+      update(data, id)
+      draw(data, id)
+      mainChannels[data.index].send(0)
 
 proc gameInit() =
   loadFont(0, "font.png")
@@ -223,16 +229,21 @@ proc gameUpdate(dt: float32) =
 fps(300)
 var 
   lastDraw = cpuTime()
-  sum = 0
-  frames = 0
+  sixtyAvg = newSeq[int](60)
+  pos = 0
 proc gameDraw() =
-  sum += (1 / (cpuTime() - lastDraw)).int
-  echo (cpuTime() - lastDraw)
-  inc frames
+  let fps = (1 / (cpuTime() - lastDraw)).int
+  sixtyAvg[pos] = fps
+  pos = (pos + 1).mod(sixtyAvg.len)
   setColor(15)
-  let (x,y) = mouse()
+  let 
+    (x,y) = mouse()
+    avg = block:
+      var res = 0
+      for x in sixtyAvg:
+        res += x
+      res.div sixtyAvg.len
   circ(x,y, drawSize.div(2))
-  let avg = sum.div(frames)
   printc($avg, ScreenSize.div(2), 0, 10)
   lastDraw = cpuTime()
 
