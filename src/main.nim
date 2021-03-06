@@ -11,7 +11,7 @@ const
 let 
   (ChunkSize, ThreadWidth, ThreadCount, ThreadRange) = block:
     let
-      baseFourThreads = 4f.pow(countProcessors().float.log(4f).floor)
+      baseFourThreads = 4f.pow(countProcessors().float.log(4f).floor).int
       size = min(ScreenSize.div(baseFourThreads), 512)
       width = ScreenSize.div(size)
       count = width.div(2).float.pow(2).int # Should be half area squared
