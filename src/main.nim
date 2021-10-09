@@ -76,7 +76,7 @@ proc moveTowards(start: int, level: ptr Level, direction: set[Direction]): (int,
         1
       else:
         -1
-    velocity = ParticleProp[level[start].kind].velocity
+    velocity = ParticleProp[level[start].kind].velocity.int
     direction = direction - {invert}
 
   if direction == {vertical}:
@@ -213,13 +213,13 @@ proc gameUpdate(dt: float32) =
     level.drawParticle(water)
   if mousebtn(1):
     level.drawParticle(steel)
-  if btn(pcA):
+  if btn(pcA, 0):
     level.drawParticle(salt)
-  if btn(pcB):
+  if btn(pcB, 0):
     level.drawParticle(gas)
-  if btn(pcY):
+  if btn(pcY, 0):
     level.drawParticle(air)
-  if btn(pcStart):
+  if btn(pcStart, 0):
     for x in level.mitems:
       x.kind = air
   drawSize = clamp(drawSize + mousewheel() * ScrollSpeed, DrawRange.a, DrawRange.b)
